@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiocryptopay import AioCryptoPay
 
-# --- НАЛАШТУВАННЯ ---
+# --- НАСТРОЙКИ ---
 API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
 CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY"
 
@@ -16,7 +16,7 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 crypto = None 
 
-# --- БАЗА ДАНИХ ---
+# --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('kairo.db')
     cursor = conn.cursor()
@@ -29,7 +29,7 @@ def generate_new_key(prefix="KAIRO"):
     random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
     return f"{prefix}-{random_part}"
 
-# --- ЛОГІКА БОТА ---
+# --- ЛОГИКА БОТА ---
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
@@ -38,27 +38,26 @@ async def start_cmd(message: types.Message):
     builder.row(types.InlineKeyboardButton(text="Месяц — $3", callback_data="buy_month"))
     builder.row(types.InlineKeyboardButton(text="Год — $10", callback_data="buy_year"))
     
-    await message.answer("🛒 **Kairo Store**\nВиберіть термін підписки:", 
+    await message.answer("🛒 **Kairo Store**\nВыберите срок подписки (Оплата USDT):", 
                          reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def create_invoice(callback: types.CallbackQuery):
     duration = callback.data.split("_")[1]
     prices = {'week': 1.5, 'month': 3, 'year': 10}
+    ru_labels = {'week': 'Неделя', 'month': 'Месяц', 'year': 'Год'}
     amount = prices[duration]
     
-    # Створюємо рахунок
+    # Создаем счет
     invoice = await crypto.create_invoice(asset='USDT', amount=amount)
     
-    # ВИПРАВЛЕНО: Використовуємо bot_invoice_url замість pay_url
-    payment_url = invoice.bot_invoice_url
-    
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="💳 Оплатити через CryptoBot", url=payment_url))
-    builder.row(types.InlineKeyboardButton(text="✅ Перевірити оплату", callback_data=f"check_{invoice.invoice_id}_{duration}"))
+    # Используем правильное поле bot_invoice_url для перехода к оплате
+    builder.row(types.InlineKeyboardButton(text="💳 Оплатить через CryptoBot", url=invoice.bot_invoice_url))
+    builder.row(types.InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_{invoice.invoice_id}_{duration}"))
     
     await callback.message.edit_text(
-        f"💎 Тариф: **{duration}**\n💰 Сума: **{amount} USDT**\n\nОплатіть за посиланням, потім натисніть кнопку перевірки.",
+        f"💎 Тариф: **{ru_labels[duration]}**\n💰 Сумма: **{amount} USDT**\n\nОплатите по ссылке ниже, затем нажмите кнопку проверки.",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown"
     )
@@ -68,7 +67,8 @@ async def check_payment(callback: types.CallbackQuery):
     _, inv_id, duration = callback.data.split("_")
     
     invoices = await crypto.get_invoices(invoice_ids=inv_id)
-    # Перевіряємо статус через список
+    
+    # Проверяем статус (библиотека возвращает список)
     if invoices and invoices[0].status == 'paid':
         user_id = callback.from_user.id
         days = {'week': 7, 'month': 30, 'year': 365}[duration]
@@ -84,11 +84,11 @@ async def check_payment(callback: types.CallbackQuery):
         conn.close()
 
         await callback.message.edit_text(
-            f"✅ **Оплата підтверджена!**\n\n🔑 Твій ключ: `{new_key}`\n⏳ Діє до: {expire_str}",
+            f"✅ **Оплата подтверждена!**\n\n🔑 Твой ключ: `{new_key}`\n⏳ Действует до: {expire_str}\n\nПросто скопируй его и вставь в лаунчер.",
             parse_mode="Markdown"
         )
     else:
-        await callback.answer("❌ Оплата ще не надійшла.", show_alert=True)
+        await callback.answer("❌ Оплата еще не получена. Попробуйте через минуту.", show_alert=True)
 
 async def check_loop():
     while True:
@@ -101,7 +101,7 @@ async def check_loop():
             for user in expired:
                 uid, old_key = user
                 try:
-                    await bot.send_message(uid, f"🚫 Підписка на ключ `{old_key}` закінчилася.")
+                    await bot.send_message(uid, f"🚫 Срок действия вашей подписки на ключ `{old_key}` истек.")
                 except: pass
                 cursor.execute("DELETE FROM subs WHERE user_id = ?", (uid,))
             conn.commit()
@@ -114,6 +114,7 @@ async def main():
     init_db()
     crypto = AioCryptoPay(token=CRYPTO_TOKEN)
     asyncio.create_task(check_loop())
+    print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
