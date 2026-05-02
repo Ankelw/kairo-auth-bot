@@ -1,31 +1,29 @@
 import os
 import threading
 import requests
-import dns.resolver # Нужно установить: pip install dnspython
-from flask import Flask
 import telebot
+from flask import Flask
 from telebot import types
 
 app = Flask(__name__)
 
-# Функция для получения "честного" IP адреса
+# --- ФУНКЦИИ СЕРВЕРА ---
+@app.route('/')
+def health_check():
+    return "Kairo Bot is online!", 200
+
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
-        return str(answer[0])
-    except:
-        return "104.26.11.164" # Запасной IP
 
-CRYPTO_IP = get_crypto_ip()
-API_URL = f"https://{CRYPTO_IP}/api"
-
+# --- НАСТРОЙКИ ---
 BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
 CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# Используем надежный домен (если не сработает, поменяй на https://104.26.11.164/api)
+API_URL = "https://pay.cryptopay.me/api"
 
-# В хендлере оплаты замени строку с requests на эту (добавили Host обратно):
-# resp = requests.post(f"{API_URL}/createInvoice", json=payload, headers={'Crypto-Pay-API-Token': CRYPTO_TOKEN, 'Host': 'pay.cryptopay.me'}, verify=False).json())
+bot = telebot.TeleBot(BOT_TOKEN)
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
@@ -41,11 +39,11 @@ def start_message(message):
 def handle_query(call):
     if call.data.startswith("buy_"):
         _, amount, plan = call.data.split("_")
+        headers = {'Crypto-Pay-API-Token': CRYPTO_TOKEN}
         payload = {'asset': 'USDT', 'amount': amount, 'description': f'Kairo: {plan}'}
         
         try:
-            # Делаем запрос, игнорируя проверку SSL (потому что идем по IP)
-            resp = requests.post(f"{API_URL}/createInvoice", json=payload, headers=HEADERS, verify=False).json()
+            resp = requests.post(f"{API_URL}/createInvoice", json=payload, headers=headers).json()
             if resp.get('ok'):
                 pay_url = resp['result']['pay_url']
                 inv_id = resp['result']['invoice_id']
@@ -56,12 +54,13 @@ def handle_query(call):
             else:
                 bot.send_message(call.message.chat.id, f"Ошибка API: {resp.get('error', {}).get('name')}")
         except Exception as e:
-            bot.send_message(call.message.chat.id, f"⚠️ Прямое подключение не удалось: {e}")
+            bot.send_message(call.message.chat.id, f"⚠️ Сетевая ошибка: {e}")
 
     elif call.data.startswith("check_"):
         _, inv_id, plan = call.data.split("_")
+        headers = {'Crypto-Pay-API-Token': CRYPTO_TOKEN}
         try:
-            res = requests.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=HEADERS, verify=False).json()
+            res = requests.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=headers).json()
             if res.get('ok') and res['result']['items'][0]['status'] == 'paid':
                 bot.send_message(call.message.chat.id, f"🎉 Подписка {plan} активна!")
             else:
@@ -70,9 +69,7 @@ def handle_query(call):
             bot.answer_callback_query(call.id, "Ошибка проверки.")
 
 if __name__ == "__main__":
-    try:
-        bot.stop_polling()
-    except:
-        pass
+    # Запуск веб-сервера для Render
     threading.Thread(target=run_web_server, daemon=True).start()
+    print("Kairo Bot started!")
     bot.polling(none_stop=True)
