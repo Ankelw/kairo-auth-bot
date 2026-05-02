@@ -52,8 +52,7 @@ def handle_query(call):
                 bot.edit_message_text(f"💳 Счет на {amount} USDT создан!", call.message.chat.id, call.message.message_id, reply_markup=markup)
             else:
                 bot.send_message(call.message.chat.id, f"❌ Ошибка API: {resp.get('error', {}).get('name')}")
-       except Exception as
-            # Бот напишет в чат, в чем именно проблема
+        except Exception as e:
             bot.send_message(call.message.chat.id, f"Детальная ошибка: {e}")
 
     elif call.data.startswith("check_"):
