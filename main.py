@@ -9,11 +9,9 @@ from telebot import types
 app = Flask(__name__)
 
 # Функция для получения "честного" IP адреса
-def get_crypto_ip():
-    try:
-        resolver = dns.resolver.Resolver()
-        resolver.nameservers = ['8.8.8.8', '8.8.4.4'] # Спрашиваем у Google, а не у провайдера
-        answer = resolver.resolve('pay.cryptopay.me', 'A')
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
         return str(answer[0])
     except:
         return "104.26.11.164" # Запасной IP
