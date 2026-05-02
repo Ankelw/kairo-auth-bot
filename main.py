@@ -9,14 +9,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiocryptopay import AioCryptoPay
 
 # --- НАЛАШТУВАННЯ ---
+# Твій токен бота
 API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
+# Твій токен Crypto Pay
 CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY"
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
-
-# Створюємо змінну для крипто, але не ініціалізуємо її одразу
-crypto = None
+crypto = None # Ініціалізується в main()
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -36,11 +36,12 @@ def generate_new_key(prefix="KAIRO"):
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="Неділя — $1.5", callback_data="buy_week"))
-    builder.row(types.InlineKeyboardButton(text="Місяць — $3", callback_data="buy_month"))
-    builder.row(types.InlineKeyboardButton(text="Рік — $10", callback_data="buy_year"))
+    builder.row(types.InlineKeyboardButton(text="Неделя — $1.5", callback_data="buy_week"))
+    builder.row(types.InlineKeyboardButton(text="Месяц — $3", callback_data="buy_month"))
+    builder.row(types.InlineKeyboardButton(text="Год — $10", callback_data="buy_year"))
     
-    await message.answer("🛒 **Kairo Store**\nВиберіть термін підписки (Оплата USDT):", reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await message.answer("🛒 **Kairo Store**\nВиберіть термін підписки (Оплата USDT):", 
+                         reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def create_invoice(callback: types.CallbackQuery):
@@ -48,7 +49,6 @@ async def create_invoice(callback: types.CallbackQuery):
     prices = {'week': 1.5, 'month': 3, 'year': 10}
     amount = prices[duration]
     
-    # Використовуємо глобальний об'єкт крипто
     invoice = await crypto.create_invoice(asset='USDT', amount=amount)
     
     builder = InlineKeyboardBuilder()
@@ -56,7 +56,7 @@ async def create_invoice(callback: types.CallbackQuery):
     builder.row(types.InlineKeyboardButton(text="✅ Перевірити оплату", callback_data=f"check_{invoice.invoice_id}_{duration}"))
     
     await callback.message.edit_text(
-        f"💎 Тариф: **{duration}**\n💰 До сплати: **{amount} USDT**\n\nОплатіть за посиланням вище, потім натисніть кнопку перевірки.",
+        f"💎 Тариф: **{duration}**\n💰 Сума: **{amount} USDT**\n\nОплатіть за посиланням, потім натисніть кнопку перевірки.",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown"
     )
@@ -74,13 +74,15 @@ async def check_payment(callback: types.CallbackQuery):
 
         conn = sqlite3.connect('kairo.db')
         cursor = conn.cursor()
+        # Зберігаємо як рядок для сумісності
+        expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("INSERT OR REPLACE INTO subs (user_id, end_time, generated_key) VALUES (?, ?, ?)",
-                       (user_id, expire_date, new_key))
+                       (user_id, expire_str, new_key))
         conn.commit()
         conn.close()
 
         await callback.message.edit_text(
-            f"✅ **Оплата пройшла!**\n\n🔑 Твій ключ: `{new_key}`\n⏳ Дійсний до: {expire_date.strftime('%d.%m.%Y %H:%M')}",
+            f"✅ **Оплата підтверджена!**\n\n🔑 Твій ключ: `{new_key}`\n⏳ Діє до: {expire_str}",
             parse_mode="Markdown"
         )
     else:
@@ -91,13 +93,13 @@ async def check_loop():
         try:
             conn = sqlite3.connect('kairo.db')
             cursor = conn.cursor()
-            now = datetime.now()
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             cursor.execute("SELECT user_id, generated_key FROM subs WHERE end_time < ?", (now,))
             expired = cursor.fetchall()
             for user in expired:
                 uid, old_key = user
                 try:
-                    await bot.send_message(uid, f"🚫 Термін підписки на ключ `{old_key}` закінчився. Ключ видалено.")
+                    await bot.send_message(uid, f"🚫 Підписка на ключ `{old_key}` закінчилася.")
                 except: pass
                 cursor.execute("DELETE FROM subs WHERE user_id = ?", (uid,))
             conn.commit()
@@ -108,15 +110,9 @@ async def check_loop():
 async def main():
     global crypto
     init_db()
-    
-    # Ініціалізуємо крипто ТІЛЬКИ ТУТ, всередині main
     crypto = AioCryptoPay(token=CRYPTO_TOKEN)
-    
     asyncio.create_task(check_loop())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    asyncio.run(main())
