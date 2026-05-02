@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # --- НАЛАШТУВАННЯ ---
-API_TOKEN = "8716589061:AAF1pEGmv6rYkhG7Nby-Fvbb3kptknDTj50"
+API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
