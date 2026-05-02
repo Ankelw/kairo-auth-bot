@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiocryptopay import CryptoPay
+from aiocryptopay import AioCryptoPay
 
 # --- НАЛАШТУВАННЯ ---
 # Твій новий токен, який ти надіслав
