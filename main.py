@@ -9,15 +9,14 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiocryptopay import AioCryptoPay
 
 # --- НАЛАШТУВАННЯ ---
-# Твій API токен бота
 API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
-
-# Твій Crypto API токен
 CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY"
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
-crypto = AioCryptoPay(token=CRYPTO_TOKEN)
+
+# Створюємо змінну для крипто, але не ініціалізуємо її одразу
+crypto = None
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -49,7 +48,7 @@ async def create_invoice(callback: types.CallbackQuery):
     prices = {'week': 1.5, 'month': 3, 'year': 10}
     amount = prices[duration]
     
-    # Створення рахунку
+    # Використовуємо глобальний об'єкт крипто
     invoice = await crypto.create_invoice(asset='USDT', amount=amount)
     
     builder = InlineKeyboardBuilder()
@@ -87,7 +86,6 @@ async def check_payment(callback: types.CallbackQuery):
     else:
         await callback.answer("❌ Оплата ще не надійшла.", show_alert=True)
 
-# Автоматичне видалення ключів через хвилину перевірки
 async def check_loop():
     while True:
         try:
@@ -108,9 +106,17 @@ async def check_loop():
         await asyncio.sleep(60)
 
 async def main():
+    global crypto
     init_db()
+    
+    # Ініціалізуємо крипто ТІЛЬКИ ТУТ, всередині main
+    crypto = AioCryptoPay(token=CRYPTO_TOKEN)
+    
     asyncio.create_task(check_loop())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
