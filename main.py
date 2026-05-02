@@ -1,33 +1,33 @@
 import os
 import threading
 import requests
+import dns.resolver # Нужно установить: pip install dnspython
 from flask import Flask
 import telebot
 from telebot import types
 
 app = Flask(__name__)
 
-@app.route('/')
-def health_check():
-    return "Kairo Bot is online!", 200
+# Функция для получения "честного" IP адреса
+def get_crypto_ip():
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = ['8.8.8.8', '8.8.4.4'] # Спрашиваем у Google, а не у провайдера
+        answer = resolver.resolve('pay.cryptopay.me', 'A')
+        return str(answer[0])
+    except:
+        return "104.26.11.164" # Запасной IP
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+CRYPTO_IP = get_crypto_ip()
+API_URL = f"https://{CRYPTO_IP}/api"
 
-# --- ЖЕСТКИЕ НАСТРОЙКИ ---
 BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
 CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
 
-# Обходим DNS: используем прямой IP и заголовок Host
-API_URL = "https://104.26.11.164/api" # Прямой IP сервера cryptopay.me
-HEADERS = {
-    'Crypto-Pay-API-Token': CRYPTO_TOKEN,
-    'Host': 'pay.cryptopay.me' # Обязательно для работы через IP
-}
-# -------------------------
-
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# В хендлере оплаты замени строку с requests на эту (добавили Host обратно):
+# resp = requests.post(f"{API_URL}/createInvoice", json=payload, headers={'Crypto-Pay-API-Token': CRYPTO_TOKEN, 'Host': 'pay.cryptopay.me'}, verify=False).json())
 
 @bot.message_handler(commands=['start'])
 def start_message(message):
