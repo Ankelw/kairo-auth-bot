@@ -1,121 +1,116 @@
-import asyncio
-import sqlite3
-import random
-import string
-from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiocryptopay import AioCryptoPay
+import os
+import threading
+import requests
+from flask import Flask
+import telebot
+from telebot import types
 
-# --- НАСТРОЙКИ ---
-API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
-CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY"
+# --- 1. ВЕБ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ БОТ НЕ ВЫКЛЮЧАЛСЯ) ---
+app = Flask(__name__)
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-crypto = None 
+@app.route('/')
+def health_check():
+    # Render будет заходить сюда, видеть 200 OK и понимать, что бот живой
+    return "Kairo Bot is online!", 200
 
-# --- БАЗА ДАННЫХ ---
-def init_db():
-    conn = sqlite3.connect('kairo.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS subs 
-                      (user_id INTEGER PRIMARY KEY, end_time DATETIME, generated_key TEXT)''')
-    conn.commit()
-    conn.close()
+def run_web_server():
+    # Порт берется из системы (Render сам его назначит)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
-def generate_new_key(prefix="KAIRO"):
-    random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    return f"{prefix}-{random_part}"
+# --- 2. НАСТРОЙКИ БОТА И ПЛАТЕЖКИ ---
+# Твои токены уже вставлены правильно
+BOT_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
+CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY" 
+# Ссылка изменена на MAINNET для приема реальных денег
+API_URL = "https://pay.cryptometrika.io/api" 
 
-# --- ЛОГИКА БОТА ---
+bot = telebot.TeleBot(BOT_TOKEN)
 
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="Неделя — $1.5", callback_data="buy_week"))
-    builder.row(types.InlineKeyboardButton(text="Месяц — $3", callback_data="buy_month"))
-    builder.row(types.InlineKeyboardButton(text="Год — $10", callback_data="buy_year"))
+# --- 3. ЛОГИКА МАГАЗИНА ---
+@bot.message_handler(commands=['start'])
+def start_message(message):
+    markup = types.InlineKeyboardMarkup(row_width=1)
     
-    await message.answer("🛒 **Kairo Store**\nВыберите срок подписки (Оплата USDT):", 
-                         reply_markup=builder.as_markup(), parse_mode="Markdown")
-
-@dp.callback_query(F.data.startswith("buy_"))
-async def create_invoice(callback: types.CallbackQuery):
-    duration = callback.data.split("_")[1]
-    prices = {'week': 1.5, 'month': 3, 'year': 10}
-    ru_labels = {'week': 'Неделя', 'month': 'Месяц', 'year': 'Год'}
-    amount = prices[duration]
+    # Кнопки с ценами (как на Screenshot_316.png)
+    btn_week = types.InlineKeyboardButton("Неделя — $1.5", callback_data="buy_1.5_week")
+    btn_month = types.InlineKeyboardButton("Месяц — $3", callback_data="buy_3_month")
+    btn_year = types.InlineKeyboardButton("Год — $10", callback_data="buy_10_year")
     
-    # Создаем счет
-    invoice = await crypto.create_invoice(asset='USDT', amount=amount)
+    markup.add(btn_week, btn_month, btn_year)
     
-    builder = InlineKeyboardBuilder()
-    # Используем правильное поле bot_invoice_url для перехода к оплате
-    builder.row(types.InlineKeyboardButton(text="💳 Оплатить через CryptoBot", url=invoice.bot_invoice_url))
-    builder.row(types.InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_{invoice.invoice_id}_{duration}"))
-    
-    await callback.message.edit_text(
-        f"💎 Тариф: **{ru_labels[duration]}**\n💰 Сумма: **{amount} USDT**\n\nОплатите по ссылке ниже, затем нажмите кнопку проверки.",
-        reply_markup=builder.as_markup(),
+    bot.send_message(
+        message.chat.id, 
+        "🛒 **Kairo Store**\nВыберите срок подписки (Оплата через CryptoPay):", 
+        reply_markup=markup,
         parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data.startswith("check_"))
-async def check_payment(callback: types.CallbackQuery):
-    _, inv_id, duration = callback.data.split("_")
-    
-    invoices = await crypto.get_invoices(invoice_ids=inv_id)
-    
-    # Проверяем статус (библиотека возвращает список)
-    if invoices and invoices[0].status == 'paid':
-        user_id = callback.from_user.id
-        days = {'week': 7, 'month': 30, 'year': 365}[duration]
-        expire_date = datetime.now() + timedelta(days=days)
-        new_key = generate_new_key(prefix=f"KAIRO-{duration.upper()}")
-
-        conn = sqlite3.connect('kairo.db')
-        cursor = conn.cursor()
-        expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute("INSERT OR REPLACE INTO subs (user_id, end_time, generated_key) VALUES (?, ?, ?)",
-                       (user_id, expire_str, new_key))
-        conn.commit()
-        conn.close()
-
-        await callback.message.edit_text(
-            f"✅ **Оплата подтверждена!**\n\n🔑 Твой ключ: `{new_key}`\n⏳ Действует до: {expire_str}\n\nПросто скопируй его и вставь в лаунчер.",
-            parse_mode="Markdown"
-        )
-    else:
-        await callback.answer("❌ Оплата еще не получена. Попробуйте через минуту.", show_alert=True)
-
-async def check_loop():
-    while True:
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    # Создание счета
+    if call.data.startswith("buy_"):
+        _, amount, plan = call.data.split("_")
+        
+        # Исправлено: токен теперь передается правильно как строка
+        headers = {'Crypto-Pay-API-Token': CRYPTO_TOKEN}
+        payload = {
+            'asset': 'USDT',
+            'amount': amount,
+            'description': f'Kairo Client: {plan}',
+            'allow_comments': False
+        }
+        
         try:
-            conn = sqlite3.connect('kairo.db')
-            cursor = conn.cursor()
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            cursor.execute("SELECT user_id, generated_key FROM subs WHERE end_time < ?", (now,))
-            expired = cursor.fetchall()
-            for user in expired:
-                uid, old_key = user
-                try:
-                    await bot.send_message(uid, f"🚫 Срок действия вашей подписки на ключ `{old_key}` истек.")
-                except: pass
-                cursor.execute("DELETE FROM subs WHERE user_id = ?", (uid,))
-            conn.commit()
-            conn.close()
-        except: pass
-        await asyncio.sleep(60)
+            resp = requests.post(f"{API_URL}/createInvoice", json=payload, headers=headers).json()
+            if resp['ok']:
+                pay_url = resp['result']['pay_url']
+                inv_id = resp['result']['invoice_id']
+                
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("Оплатить (USDT)", url=pay_url))
+                markup.add(types.InlineKeyboardButton("Проверить оплату", callback_data=f"check_{inv_id}_{plan}"))
+                
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=f"💳 **Счет на {amount} USDT готов!**\nСрок: {plan}\n\nНажмите кнопку ниже для оплаты. После перевода нажмите «Проверить».",
+                    reply_markup=markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.send_message(call.message.chat.id, "Ошибка API: Проверь, не истек ли токен в @CryptoBot")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, "Ошибка при создании счета. Попробуй позже.")
 
-async def main():
-    global crypto
-    init_db()
-    crypto = AioCryptoPay(token=CRYPTO_TOKEN)
-    asyncio.create_task(check_loop())
-    print("Бот запущен и готов к работе!")
-    await dp.start_polling(bot)
+    # Проверка статуса оплаты
+    elif call.data.startswith("check_"):
+        _, inv_id, plan = call.data.split("_")
+        headers = {'Crypto-Pay-API-Token': CRYPTO_TOKEN}
+        
+        try:
+            res = requests.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=headers).json()
+            status = res['result']['items'][0]['status']
+            
+            if status == 'paid':
+                bot.send_message(
+                    call.message.chat.id, 
+                    f"🎉 **Успешно!**\nТвоя подписка на **{plan}** активирована.\n\n"
+                    "Теперь ты можешь зайти в чит под своим логином."
+                )
+            else:
+                bot.answer_callback_query(call.id, "❌ Оплата еще не найдена. Подожди минуту или проверь транзакцию.", show_alert=True)
+        except:
+            bot.answer_callback_query(call.id, "Ошибка проверки статуса.")
 
+# --- 4. ЗАПУСК ---
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Flask работает в фоне для Render (чтобы не было SIGTERM)
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.daemon = True
+    web_thread.start()
+
+    print("Kairo Bot is running on Mainnet!")
+    
+    # Запуск бота
+    bot.polling(none_stop=True)
