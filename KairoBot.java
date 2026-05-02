@@ -1,5 +1,6 @@
 package me.andrii.kairo;
 
+import static spark.Spark.*;
 import java.io.*;
 import java.net.*;
 import java.net.http.*;
@@ -11,9 +12,15 @@ public class KairoBot {
     private static final String BOT_TOKEN = "8778508840:AAH_U3Sn-BYPrENXWK4LfPq9rxzH3lHLRXc";
     
     public static void main(String[] args) throws Exception {
-        System.out.println("Kairo Bot started on Render!");
-        long lastUpdateId = 0;
+        // Хитрий хід: запускаємо веб-сервер на порту, який дає Render
+        String port = System.getenv("PORT");
+        if (port == null) port = "8080";
+        port(Integer.parseInt(port));
+        get("/", (req, res) -> "Kairo Bot is Live!"); 
+
+        System.out.println("Kairo Bot + Web Server started!");
         
+        long lastUpdateId = 0;
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20))
                 .build();
@@ -36,7 +43,7 @@ public class KairoBot {
                                 JSONObject msg = update.getJSONObject("message");
                                 if (msg.has("chat") && msg.has("text")) {
                                     String chatId = String.valueOf(msg.getJSONObject("chat").getLong("id"));
-                                    sendMsg(chatId, "Привіт! Бот Kairo тепер працює 24/7 на Render!");
+                                    sendMsg(chatId, "Привіт! Тепер я працюю через Web Service з обходом порту!");
                                 }
                             }
                         }
