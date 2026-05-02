@@ -1,2 +1,5 @@
 aiogram
 aiocryptopay
+pyTelegramBotAPI
+flask
+requests
