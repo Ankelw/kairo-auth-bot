@@ -9,14 +9,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiocryptopay import AioCryptoPay
 
 # --- НАЛАШТУВАННЯ ---
-# Твій токен бота
 API_TOKEN = "8716589061:AAEz8Zi_E5ThRchDslu7vn7LL1Tq2V5qDl8"
-# Твій токен Crypto Pay
 CRYPTO_TOKEN = "576355:AAxkBEag3mJdLyyIqHe0hUT0OOP0vYbPAoY"
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
-crypto = None # Ініціалізується в main()
+crypto = None 
 
 # --- БАЗА ДАНИХ ---
 def init_db():
@@ -40,7 +38,7 @@ async def start_cmd(message: types.Message):
     builder.row(types.InlineKeyboardButton(text="Месяц — $3", callback_data="buy_month"))
     builder.row(types.InlineKeyboardButton(text="Год — $10", callback_data="buy_year"))
     
-    await message.answer("🛒 **Kairo Store**\nВиберіть термін підписки (Оплата USDT):", 
+    await message.answer("🛒 **Kairo Store**\nВиберіть термін підписки:", 
                          reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith("buy_"))
@@ -49,10 +47,14 @@ async def create_invoice(callback: types.CallbackQuery):
     prices = {'week': 1.5, 'month': 3, 'year': 10}
     amount = prices[duration]
     
+    # Створюємо рахунок
     invoice = await crypto.create_invoice(asset='USDT', amount=amount)
     
+    # ВИПРАВЛЕНО: Використовуємо bot_invoice_url замість pay_url
+    payment_url = invoice.bot_invoice_url
+    
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="💳 Оплатити через CryptoBot", url=invoice.pay_url))
+    builder.row(types.InlineKeyboardButton(text="💳 Оплатити через CryptoBot", url=payment_url))
     builder.row(types.InlineKeyboardButton(text="✅ Перевірити оплату", callback_data=f"check_{invoice.invoice_id}_{duration}"))
     
     await callback.message.edit_text(
@@ -66,7 +68,8 @@ async def check_payment(callback: types.CallbackQuery):
     _, inv_id, duration = callback.data.split("_")
     
     invoices = await crypto.get_invoices(invoice_ids=inv_id)
-    if invoices and invoices.status == 'paid':
+    # Перевіряємо статус через список
+    if invoices and invoices[0].status == 'paid':
         user_id = callback.from_user.id
         days = {'week': 7, 'month': 30, 'year': 365}[duration]
         expire_date = datetime.now() + timedelta(days=days)
@@ -74,7 +77,6 @@ async def check_payment(callback: types.CallbackQuery):
 
         conn = sqlite3.connect('kairo.db')
         cursor = conn.cursor()
-        # Зберігаємо як рядок для сумісності
         expire_str = expire_date.strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute("INSERT OR REPLACE INTO subs (user_id, end_time, generated_key) VALUES (?, ?, ?)",
                        (user_id, expire_str, new_key))
